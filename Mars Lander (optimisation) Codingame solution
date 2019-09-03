@@ -1,0 +1,315 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <algorithm>
+#include <math.h>
+
+using namespace std;
+
+/**
+ * Save the Planet.
+ * Use less Fossil Fuel.
+ **/
+ 
+ // Anay Dhaya
+ // 29/08/2019
+ // Mars Lander Challenge
+ // This challenge was done as part of a test, as it will be reviewed (and in these situations generally),
+ // i tend to leave the code very over-commented so that the reader can see my thought process throughout
+ // and really get an insight into whats going on. I also like to leave improvement ideas inside for if i
+ // come back to this challenge to take it further
+ 
+ // Structure to be used throughout as both a coordinate and vector between coordinates
+ struct coordinate
+ {
+     int posX;
+     int posY;
+ };
+
+int main()
+{
+    static double g = -3.711;
+    static double pi = atan(1)*4;
+    
+    // Want a vector of the ground coordinates so that i know the layout of the terrain beforehand
+    vector<coordinate> groundCoordinates;
+    
+    int surfaceN; // the number of points used to draw the surface of Mars (changed to "surfaceN" as per the brief).
+    cin >> surfaceN; cin.ignore();
+    for (int i = 0; i < surfaceN; i++) {
+        int landX; // X coordinate of a surface point. (0 to 6999)
+        int landY; // Y coordinate of a surface point. By linking all the points together in a sequential fashion, you form the surface of Mars.
+        cin >> landX >> landY; cin.ignore();
+        
+        // create a new coordinate and add the coordinate to the vector
+        coordinate temp; temp.posX = landX; temp.posY = landY;
+        groundCoordinates.push_back(temp);
+    }
+    
+    // Now before the main game loop, we can find the valid x location of flat ground
+    // This is simplified only assuming that the terrain has 1 flat location. A more optimised version would
+    // search for flat locations, and discard/overwrite data depending on the distance it is from the lander.
+    // An even more optimised version would base decisions on the terrain surrounding the flat land (cave etc.)
+    // and the current velocity of the lander as this can result in the lander 'coasting' to a more distant LZ
+    // with less fuel used.
+    coordinate flatStart, flatEnd;
+    for (int i{0}; i < surfaceN - 1; i++) 
+    {
+        if(groundCoordinates[i].posY == groundCoordinates[i+1].posY){
+            
+            // found flat ground
+            flatStart.posX = groundCoordinates[i].posX;
+            flatStart.posY = groundCoordinates[i].posY;
+            flatEnd.posX = groundCoordinates[i+1].posX;
+            flatEnd.posY = groundCoordinates[i+1].posY;
+        }
+    }
+    
+    // test that the flat zone has been found
+    cerr << "start posX: " << flatStart.posX << endl;
+    cerr << "start posY: " << flatStart.posY << endl;
+    cerr << "end posX: " << flatEnd.posX << endl;
+    cerr << "end posY: " << flatEnd.posY << endl;
+    
+    // We want the LZ to be as close to the craft as we can (in most scenarios). If the pivot on the craft is right 
+    // at the bottom and in the centre, I'm estimating about 10 metres either way (20 meter length) so let's put our 
+    // LZ 10m from the closets flat point. This is done inside the game loop but only on the first iteration where 
+    // we need the craft initial position.
+    int craftHalfLength = 10;
+    bool firstIteration = true;
+    coordinate lz;
+    int largestHill = 0;
+    double fractionLength = 0.02; // The seperation of the Bezier points
+    int dist1, dist2; // distance from P_0 to P_1 and P_1 to P_2
+    vector<coordinate> bezierCoordinates;
+    
+    // game loop
+    while (1) {
+        int X;
+        int Y;
+        int HS; // the horizontal speed (in m/s), can be negative.
+        int VS; // the vertical speed (in m/s), can be negative.
+        int F; // the quantity of remaining fuel in liters.
+        int R; // the rotation angle in degrees (-90 to 90).
+        int P; // the thrust power (0 to 4).
+        cin >> X >> Y >> HS >> VS >> F >> R >> P; cin.ignore();
+        
+        // On the very first iteration of the game loop (and at no point thereafter), determine some metrics that rely on the craft initial position
+        if(firstIteration)
+        {
+            lz.posY = flatStart.posY;
+            coordinate pivotNode; // This is P_1 in our quadratic Bezier
+            
+            // check that the craft isn't already above the flat area, if it is then set lz.x as the craft x pos. If not get which side it's on
+            if(X > flatStart.posX && X < flatEnd.posX)
+            {
+                lz.posX = X;
+            }
+            else if(X < flatStart.posX)
+            {
+                lz.posX = flatStart.posX + craftHalfLength;
+            }
+            else if(X > flatEnd.posX)
+            {
+                lz.posX = flatEnd.posX - craftHalfLength - 50;
+            }
+            
+            // now we have 2 of the waypoints for our Quadratic bezier curve. The central one can just be the X of lz and Y of craft
+            // however if a local maximum intersects this line, we want to set the central node to push the curve above this maximum
+            // This isn't done here because none of the test cases require it but an ideal algorithm will first find the bezier curve,
+            // test if it intersects the terrain, increase the height of pivotNode and repeat until the trajectory is uninterupted
+            for(int i{0}; i < surfaceN; i++)
+            {
+                
+                // Very basic version of what i describe above
+                if(groundCoordinates[i].posX > X && groundCoordinates[i].posX < lz.posX && groundCoordinates[i].posY > Y)
+                {
+                    if(groundCoordinates[i].posY > largestHill)
+                    largestHill = groundCoordinates[i].posY;
+                    // The craft does not have a clear view of the lz, need to set a trajectory above it
+                }
+            }
+            
+            // Qualitatively, the Bezier curve is a curve that begins with a tangent from P_0 to P_1 and ends with a tangent from P_2
+            // to P_1 therefore if we want the craft to decend on the lz from above and avoid last minute rotations, we should have 
+            // the pivot node above the lz always
+            pivotNode.posX = lz.posX;
+            
+            // for the Y position, that is a little more complicated as to where the optimal location is to just avoid the hill so for now i will have a static value
+            if(largestHill == 0)
+            {
+                
+                // Going to try putting the lz slightly above the y position so that the craft doesnt aim to only become aligned at the last second (test 5)
+                pivotNode.posY = Y;
+            }
+            
+            // report the pivot node for debugging
+            cerr << "pivot: " << pivotNode.posX << endl;
+            cerr << "pivot: " << pivotNode.posY << endl;
+            
+            //// And now finally we can make the Bezier curve trajectory, find distance between points P_0, P_1, P_2
+            //dist1 = round(pow(pow(abs(X - pivotNode.posX),2) + pow(abs(Y - pivotNode.posY),2),0.5));
+            //dist2 = round(pow(pow(abs(lz.posX - pivotNode.posX),2) + pow(abs(lz.posY - pivotNode.posY),2),0.5));
+            
+            //// check values
+            //cerr << "distance1: " << dist1 << endl;
+            //cerr << "distance2: " << dist2 << endl;
+            
+            // Create Bezier curve points
+            int loopNumber = 1/fractionLength;
+            for(int i{1}; i < loopNumber + 1; i++)
+            {
+                    float t = i * fractionLength;
+                    coordinate bezier_t;
+                    
+                    // The bezier equations for position as given by wikipedia
+                    int xCoord = round(pivotNode.posX + pow(1-t,2)*(X-pivotNode.posX) + pow(t,2)*(lz.posX-pivotNode.posX));
+                    cerr << "Bezier " << i << " X: " << xCoord;
+                    int yCoord = round(pivotNode.posY + pow(1-t,2)*(Y-pivotNode.posY) + pow(t,2)*(lz.posY-pivotNode.posY));
+                    cerr << " Bezier " << i << " Y: " << yCoord << endl;
+                    bezier_t.posX = xCoord;
+                    bezier_t.posY = yCoord;
+                    bezierCoordinates.push_back(bezier_t);
+            }         
+            
+            // Stop this piece of code being run in following iterations
+            firstIteration = false;
+        }
+        
+        // Now we have all the setup done, we can start the actual movement. We know that the craft has some horizontal velocity
+        // HS and some vertical velocity VS, the coordinates X and Y rotation R and thrust power P.
+        // framesAhead tells us how far ahead to look at this current speed. If it is too small, the craft will never 
+        // have enough time to correct and if it is too large, the craft will be inefficient (follow bezier curve less)
+        int framesAhead = 14;
+        coordinate currentVelocity = {HS,VS};
+        coordinate destination = {X + framesAhead * HS, Y + framesAhead * VS}; // The craft momentum is taking it to this location
+        
+        // So here we want to Find the bezier point along our curve that we will be aiming for. The caveat is that you have to select one
+        // Which is close enough away that you still follow the curve but far enough that meaningful corrections can be made. Because of this,
+        // I have hardcoded values such as the "3 * framesAhead" which i just found were a nice balance but may not be ideal
+        int bezierIndex = 0;
+        double distance = 7616; // larger than size of the map
+        for(int i{bezierIndex}; i < bezierCoordinates.size(); i++)
+        {
+            if(bezierCoordinates[i].posY < Y + 3 * framesAhead * VS + g)
+            {
+                double temp = pow(pow(abs(X - bezierCoordinates[i].posX),2) + pow(abs(Y - bezierCoordinates[i].posY),2),0.5);
+                if(temp < distance)
+                {
+                    distance = temp;
+                    bezierIndex = i;
+                }
+                else
+                {
+                    // If we start to diverge from the closest point, no need to keep looping
+                    break;
+                }
+            }
+            else
+            {
+                // The target is the lz
+                bezierIndex = 49;
+            }
+        }
+        
+        // Set R and P to 0. In the case that no corrections need to be made, we will not need to do any burns
+        R = 0;
+        P = 0;
+        
+        // this vector sees where the craft is estimated to go and attempts to steer it towards the point on the bezier curve that has approx the same y
+        coordinate correction = {bezierCoordinates[bezierIndex].posX - destination.posX, bezierCoordinates[bezierIndex].posY - destination.posY};
+        // This is huge for smoothing out the trajectory, hadnt realised until now that the rounding was making such a huge difference
+        double argument = (double)correction.posX / abs((double)correction.posY);
+        R = -round(atan(argument) * 180 / pi);
+        P = 4;
+        
+        // If the bezier point is far away (relative to the vertical separation) then the craft cannot burn horizontally.
+        // In tis situation, we want the craft to override the rotation and clamp it between +-21 degrees to move horizontally
+        if (abs(correction.posX)/abs(correction.posY) > 10) // Hardcoded ratio, not ideal but hard to tell exactly what constitutes too far horizontal
+        {
+            
+            cerr << "Clamped Rotation!" << endl;
+            // Clamp R. If R is negative, reduce it but keep the sign and vice versa
+            // The limit on R is 21 to keep VS constant however given the engines need 
+            // time to fire up, the craft needs time to rotate, we make R further inside 
+            // this limit so that the craft can correct the initial change in VS
+            if(R > 0)
+            {
+                R = 10;
+            }
+            else if(R < 0)
+            {
+                R = -10;
+            }
+            else
+            {
+                R = 0;
+            }
+        }
+        
+        // Output some vectors, use in debugging to make sure the angles are correct
+        cerr << "Bezier point Coordinate: " << bezierCoordinates[bezierIndex].posX << ", " << bezierCoordinates[bezierIndex].posY << endl;
+        cerr << "Craft Coordinates: " << X << ", " << Y << endl;
+        cerr << "Destination based on current velocity: " << destination.posX << ", " << destination.posY << endl;
+        cerr << "Correction Coordinates: " << correction.posX << ", " << correction.posY << endl;
+        
+        // have test for whether craft is anywhere above flat area with HS approx 0 so we can perform landing
+        if(X > flatStart.posX && X < flatEnd.posX && HS > -5 && HS < 5) // abs HS < 5 
+        {
+            
+            // start landing precedure
+            if(HS>0)
+            {
+                R = 5;
+            }
+            else if(HS<0)
+            {
+                R = -5;
+            }
+            else if(HS==0)
+            {
+                R = 0;
+            }
+            
+            // Statement to remain at VS approx 40 during decent
+            if(VS<-39)
+            {
+                P = 4;
+            }
+            else
+            {
+                P = 0; // Making this smaller ever so slightly improves the craft fuel usage, but i think its a little risky, 
+                // if just by chance the engines turn off just above the ground and VS becomes 41 then it would fail.
+                // This makes sense really, from my ksp experience, i know that a 'suicide' burn is the most efficient landing
+                // however without a good way to calculate the last possible moment to fire the engines, just changing this will do
+            }
+            
+            int emergencyDistance = 100; // hardcoded value
+            
+            // Implement an emergency landing - this could end up being quite efficient if the craft can land with some HS only as long as R = 0;
+            if (Y < lz.posY + emergencyDistance)
+            {
+                // Just attempt to land by making R = 0
+                R = 0;
+                cerr << "Emergency Landing!" << endl;
+            }
+        }
+        
+        // Some todo's:
+        // Put in curve intersect check. Check for all x on the terrain, if the y is higher than the y of the bezier at that point!
+        // If so, increase the central node and try again
+        // Add initial velocity check, if the velocity is too high, look for farther lz!
+        // Add Distance to lz check, if the lz is too far, the lander should slowly traverse left at constant altitude (angle 21 degrees)
+        
+        cerr << "R: " << R << endl;
+        cerr << "P: " << P << endl;
+        
+        // Write an action using cout. DON'T FORGET THE "<< endl"
+        // To debug: cerr << "Debug messages..." << endl;
+
+
+        // R P. R is the desired rotation angle. P is the desired thrust power.
+        //cout << "0 0" << endl;
+        cout << R << " " << P << endl;
+    }
+}
